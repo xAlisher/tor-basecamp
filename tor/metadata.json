@@ -1,8 +1,18 @@
 {
   "name": "tor",
   "version": "0.1.0",
-  "description": "Headless Tor capability module: HTTP requests over Tor (clearnet + .onion), v3 client-authorized onions, and a shared SOCKS endpoint for streaming. One tor instance for all Basecamp apps.",
-  "interface": "universal",
+  "type": "core",
   "category": "networking",
-  "dependencies": []
+  "description": "Headless Tor capability: HTTP over Tor, a shared SOCKS endpoint, v3 client authorization, and onion-service hosting. One tor instance for all Basecamp apps.",
+  "author": "xAlisher",
+  "interface": "universal",
+  "main": "tor_plugin",
+  "codegen": { "impl_header": "tor_impl.h" },
+  "icon": "",
+  "dependencies": [],
+  "capabilities": [],
+  "nix": {
+    "external_libraries": [],
+    "cmake": { "extra_include_dirs": ["src"] }
+  }
 }
