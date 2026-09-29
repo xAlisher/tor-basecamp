@@ -23,7 +23,18 @@ That is three independent tor launches, three torrc templates, three SOCKS/auth 
 
 ## Status
 
-Early. See [SPEC.md](SPEC.md) for the design and [docs/API.md](docs/API.md) for the API calls.
+**v0.1.0** — Phase 1 (client) + Phase 2 (onion hosting & v3 pairing) complete. Headless harness passes 9/9 (`tor/tests/tor_test.sh`), including a self-loop and the full pairing round-trip; verified live in Basecamp (`http_request` → `IsTor:true`). See [SPEC.md](SPEC.md) for the design and [docs/API.md](docs/API.md) for the API calls.
+
+## Install (Linux x86-64)
+
+Grab the two `.lgx` from the [v0.1.0 release](https://github.com/xAlisher/tor-basecamp/releases/tag/v0.1.0) and install `tor` first (it's the dependency), then the harness:
+
+```
+lgpm install --file tor-0.1.0-linux-amd64.lgx --allow-unsigned
+lgpm install --file tor_test_ui-0.1.0-linux-amd64.lgx --allow-unsigned
+```
+
+`tor` bundles its own `tor` + `curl` + CA bundle — no system `tor`/`torsocks` needed. The packages are currently **unsigned** (the signer's validator predates the newer builder's root `assets/` tree; install is unaffected, since Basecamp gates on `trustedSigners`).
 
 ## Scope
 
