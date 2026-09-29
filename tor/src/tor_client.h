@@ -31,6 +31,9 @@ public:
     int controlPort() const { return m_controlPort; }
     std::string torVersion();   // via ControlPort GETINFO version; "" if unknown
 
+    // Request a fresh circuit (ControlPort SIGNAL NEWNYM). Returns true on 250 OK.
+    bool newCircuit();
+
 private:
     // A control-protocol request/response round trip. Returns the raw reply,
     // empty on connection/auth failure.

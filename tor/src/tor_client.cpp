@@ -110,7 +110,7 @@ bool TorClient::ensureStarted(const std::string& dataDir,
     {
         std::ofstream f(torrc);
         if (!f) { errorOut = "torrc_write_failed"; return false; }
-        f << "SocksPort 127.0.0.1:" << m_socksPort << "\n"
+        f << "SocksPort 127.0.0.1:" << m_socksPort << " IsolateSOCKSAuth\n"
           << "ControlPort 127.0.0.1:" << m_controlPort << "\n"
           << "CookieAuthentication 1\n"
           << "DataDirectory " << dataDir << "\n"
@@ -171,4 +171,9 @@ std::string TorClient::torVersion() {
     p += 8;
     auto e = r.find_first_of("\r\n", p);
     return r.substr(p, e == std::string::npos ? std::string::npos : e - p);
+}
+
+bool TorClient::newCircuit() {
+    std::string r = controlQuery("SIGNAL NEWNYM");
+    return r.find("250 OK") != std::string::npos;
 }

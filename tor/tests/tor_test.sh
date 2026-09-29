@@ -94,5 +94,28 @@ d=s.recv(2); print("ok" if d==b"\x05\x00" else "bad:"+d.hex())' "$EP" 2>&1)
   [ "$R" = "ok" ] && ok "endpoint matches status; SOCKS5 handshake ok on $EP" || bad "socks handshake: $R"
 else bad "endpoint/port mismatch: status socks=$SOCKS endpoint=$EP"; fi
 
+echo "== T4  http_request over Tor (proves routing via check.torproject.org)"
+REQ='{"method":"GET","url":"https://check.torproject.org/api/ip","timeout_ms":45000}'
+H=$(call http_request "$REQ")
+ISTOR=$(echo "$H" | python3 -c '
+import sys,json,base64
+try:
+    r=json.load(sys.stdin); r=r.get("value",r)
+    b=base64.b64decode(r.get("body_b64","")).decode("utf-8","replace")
+    print(str(r.get("status"))+" "+("IsTor:true" if "\"IsTor\":true" in b.replace(" ","") else "IsTor:false")+" kind="+str(r.get("error_kind")))
+except Exception as e: print("parse-fail "+str(e))')
+echo "      $ISTOR"
+echo "$ISTOR" | grep -q '200 IsTor:true' && ok "fetched over Tor, IsTor:true" || bad "not routed through Tor: $ISTOR"
+
+echo "== T5  error_kind on an unresolvable host"
+E5=$(call http_request '{"url":"http://no-such-host-xyzzy.invalid/","timeout_ms":15000}')
+echo "      $(echo "$E5" | grep -oE '"error_kind":"[^"]*"|"ok":(true|false)')"
+echo "$E5" | grep -qE '"error_kind":"(dns_failed|connect_failed)"' && ok "unresolvable -> dns/connect error_kind" || bad "wrong error_kind: $E5"
+
+echo "== T6  new_circuit returns ok"
+C6=$(call new_circuit '{}')
+echo "      $C6"
+echo "$C6" | grep -q '"ok":true' && ok "new_circuit ok" || bad "new_circuit failed: $C6"
+
 echo; echo "  RESULT: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

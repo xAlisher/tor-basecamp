@@ -17,7 +17,7 @@
 #
 # Modelled on receiver-basecamp's nix/helper-bundle.nix, which has shipped tor on macOS.
 # Uses `stdenv` (not stdenvNoCC) so the darwin build env provides otool + install_name_tool.
-{ stdenv, lib, tor, patchelf ? null, sigtool ? null }:
+{ stdenv, lib, tor, curl, cacert, patchelf ? null, sigtool ? null }:
 
 let isDarwin = stdenv.hostPlatform.isDarwin;
 in
@@ -49,6 +49,8 @@ stdenv.mkDerivation {
 
       install -m755 ${tor}/bin/tor $out/tor
       collect $out/tor
+      install -m755 ${curl}/bin/curl $out/curl
+      collect $out/curl
 
       # Make the bundle relocatable, then re-sign — in that order.
       for f in $out/*; do
@@ -79,6 +81,10 @@ stdenv.mkDerivation {
       }
 
       add ${tor}/bin/tor
+      add ${curl}/bin/curl
+
+      # CA bundle for HTTPS over Tor (the .lgx has no system store path).
+      install -m644 ${cacert}/etc/ssl/certs/ca-bundle.crt $out/ca-bundle.crt
 
       # Resolve siblings from the bundle itself rather than from /nix/store, so the .lgx
       # works on a machine with no nix.
@@ -92,6 +98,8 @@ stdenv.mkDerivation {
       # "No such file or directory" even though the file is plainly there and ldd resolves
       # every library: the message is about the missing INTERPRETER, not the binary, which
       # makes it easy to misread. Libraries have no PT_INTERP, so only tor is patched.
-      patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 "$out/tor" 2>/dev/null || true
+      for exe in tor curl; do
+        patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 "$out/$exe" 2>/dev/null || true
+      done
     '';
 }
