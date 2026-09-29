@@ -39,14 +39,30 @@ Rectangle {
         if (typeof logos === "undefined" || !logos.callModule) { log(method, { raw: "bridge unavailable" }); return {} }
         var raw = logos.callModule("tor", method, args || [])
         var r = parse(raw)
+        // A failed call carries its message in r.error; r.value is null on that path.
+        // Surface the error instead of logging a bare "null" that hides the cause.
+        if (r && typeof r === "object" && r.success === false) {
+            var e = { ok: false, error: r.error || "(failed, no message)" }
+            log(method, e); return e
+        }
         var v = (r && typeof r === "object" && r.value !== undefined && r.success !== undefined) ? r.value : r
         log(method, v)
         return v
+    }
+    // Same IPC as call(), but does NOT write the shared console — for the
+    // background status poll, so it can't clobber a result you just clicked.
+    function callQuiet(method, args) {
+        if (typeof logos === "undefined" || !logos.callModule) return {}
+        var r = parse(logos.callModule("tor", method, args || []))
+        return (r && typeof r === "object" && r.value !== undefined && r.success !== undefined) ? r.value : r
     }
     function log(method, v) {
         console.log("[tor_test_ui] " + method + " -> " + JSON.stringify(v))
         resultConsole.text = method + "  →\n" + JSON.stringify(v, null, 2)
     }
+    // clipboard — TextEdit.copy() is the portable QML route to the system clipboard.
+    function copyText(s) { if (!s || !s.length) return; clip.text = "" + s; clip.selectAll(); clip.copy(); clip.deselect(); clip.text = "" }
+    TextEdit { id: clip; visible: false; width: 0; height: 0 }
 
     ColumnLayout {
         anchors.fill: parent
@@ -86,11 +102,15 @@ Rectangle {
                         ProgressBar { id: bootBar; from: 0; to: 100; value: 0; Layout.fillWidth: true }
                         Label { id: bootLbl; text: "0%"; color: root.dim; font.pixelSize: 13 }
                     }
-                    Label { id: sockLbl; text: "socks: —"; color: root.dim; font.pixelSize: 13; font.family: "monospace" }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: root.pad
+                        Label { id: sockLbl; text: "socks: —"; color: root.dim; font.pixelSize: 13; font.family: "monospace"; Layout.fillWidth: true }
+                        CopyBtn { label: "Copy socks"; value: sockLbl.text.indexOf(":") >= 0 ? sockLbl.text.replace("socks: ","") : "" }
+                    }
                     Label { id: verLbl;  text: "tor: —";  color: root.dim; font.pixelSize: 13; font.family: "monospace" }
                     RowLayout {
                         spacing: root.pad
-                        Button { text: "Refresh status"; onClicked: root.pollStatus() }
+                        Button { text: "Refresh status"; onClicked: root.log("status", root.pollStatus()) }
                         Button { text: "get_socks_endpoint"; onClicked: { var e = root.call("get_socks_endpoint", []); sockLbl.text = "socks: " + (e.host||"?") + ":" + (e.port||"?") } }
                         Button { text: "new_circuit"; onClicked: root.call("new_circuit", [JSON.stringify({})]) }
                     }
@@ -134,7 +154,12 @@ Rectangle {
                         }
                         Button { text: "new_circuit"; onClicked: root.call("new_circuit", [JSON.stringify({})]) }
                     }
-                    TextArea { id: respLbl; Layout.fillWidth: true; Layout.preferredHeight: 90; readOnly: true; wrapMode: TextArea.Wrap
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: root.pad
+                        Label { text: "HTTP response:"; color: root.dim; font.pixelSize: 12; Layout.fillWidth: true }
+                        CopyBtn { label: "Copy"; value: respLbl.text }
+                    }
+                    TextArea { id: respLbl; Layout.fillWidth: true; Layout.preferredHeight: 90; readOnly: true; selectByMouse: true; wrapMode: TextArea.Wrap
                                color: root.ink; background: Rectangle { color: "#0e1017"; border.color: root.border } }
                 }
             }
@@ -166,7 +191,12 @@ Rectangle {
                         Button { text: "status"; onClicked: root.call("onion_service_status", [JSON.stringify({ id: root.lastOnion.replace(".onion","") })]) }
                         Button { text: "remove"; onClicked: root.call("remove_onion_service", [JSON.stringify({ id: root.lastOnion.replace(".onion","") })]) }
                     }
-                    Label { id: onionLbl; text: "onion: —"; color: root.ink; font.pixelSize: 13; font.family: "monospace"; Layout.fillWidth: true; wrapMode: Text.WrapAnywhere }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: root.pad
+                        Label { id: onionLbl; text: "onion: —"; color: root.ink; font.pixelSize: 13; font.family: "monospace"; Layout.fillWidth: true; wrapMode: Text.WrapAnywhere }
+                        CopyBtn { label: "Copy .onion"; value: root.lastOnion }
+                        CopyBtn { label: "Copy http URL"; value: root.lastOnion.length ? ("http://" + root.lastOnion + "/") : "" }
+                    }
                 }
             }
 
@@ -180,7 +210,12 @@ Rectangle {
                         text: "generate_client_auth_keypair"; highlighted: true
                         onClicked: { var r = root.call("generate_client_auth_keypair", []); root.lastPub = r["public"]||""; root.lastPriv = r["private"]||""; kpLbl.text = "public (base32): " + root.lastPub + "\nprivate (base64): " + root.lastPriv }
                     }
-                    TextArea { id: kpLbl; Layout.fillWidth: true; Layout.preferredHeight: 60; readOnly: true; wrapMode: TextArea.WrapAnywhere; color: root.ink; background: Rectangle { color: "#0e1017"; border.color: root.border } }
+                    TextArea { id: kpLbl; Layout.fillWidth: true; Layout.preferredHeight: 60; readOnly: true; selectByMouse: true; wrapMode: TextArea.WrapAnywhere; color: root.ink; background: Rectangle { color: "#0e1017"; border.color: root.border } }
+                    RowLayout {
+                        spacing: root.pad
+                        CopyBtn { label: "Copy public (base32)"; value: root.lastPub }
+                        CopyBtn { label: "Copy private (base64)"; value: root.lastPriv }
+                    }
 
                     Section { title: "Server side — authorize a client on a hosted onion" }
                     TextField { id: pairHostId; Layout.fillWidth: true; placeholderText: "hosted service id (from Host tab)" }
@@ -206,28 +241,57 @@ Rectangle {
         }
 
         // ── shared response console ──────────────────────────────────────────
-        Label { text: "Last response:"; color: root.dim; font.pixelSize: 12 }
-        TextArea {
-            id: resultConsole
-            Layout.fillWidth: true; Layout.preferredHeight: 120
-            readOnly: true; wrapMode: TextArea.WrapAnywhere; font.family: "monospace"; font.pixelSize: 12
-            color: root.ink; background: Rectangle { color: "#0e1017"; border.color: root.border }
-            text: "Responses appear here."
+        RowLayout {
+            Layout.fillWidth: true; spacing: root.pad
+            Label { text: "Last response:"; color: root.dim; font.pixelSize: 12; Layout.fillWidth: true }
+            CopyBtn { label: "Copy"; value: resultConsole.text }
+            Button { text: "Clear"; onClicked: { resultConsole.text = ""; respLbl.text = "" } }
+        }
+        // ScrollView caps the height (TextArea's content-height acts as a floor in a
+        // Layout, so a bare TextArea grows off-screen); now it scrolls internally.
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 130; Layout.maximumHeight: 130
+            clip: true
+            background: Rectangle { color: "#0e1017"; border.color: root.border }
+            TextArea {
+                id: resultConsole
+                readOnly: true; selectByMouse: true; persistentSelection: true
+                wrapMode: TextArea.WrapAnywhere; font.family: "monospace"; font.pixelSize: 12
+                color: root.ink
+                text: "Responses appear here."
+            }
         }
     }
 
-    // status poller
+    // status poller — updates the Ready-tab widgets only (quiet: never touches
+    // the shared console). Returns the status so the manual button can log it.
     function pollStatus() {
-        var s = root.call("status", [])
+        var s = root.callQuiet("status", [])
         var p = s.progress || 0
         bootBar.value = p; bootLbl.text = p + "%"
         readyPill.text = s.bootstrapped ? "● tor up" : ("● bootstrapping " + p + "%")
         readyPill.color = s.bootstrapped ? root.ok : root.dim
         if (s.socks_port) sockLbl.text = "socks: " + (s.socks_host||"127.0.0.1") + ":" + s.socks_port
         if (s.tor_version) verLbl.text = "tor: " + s.tor_version
+        if (s.bootstrapped) pollTimer.running = false   // stop churning once up; manual Refresh still works
+        return s
     }
-    Timer { interval: 3000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.pollStatus() }
+    Timer { id: pollTimer; interval: 3000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.pollStatus() }
 
     // tiny helpers as inline components
     component Section : Label { property string title; text: title; color: root.ink; font.pixelSize: 15; font.bold: true; Layout.topMargin: root.pad }
+    // one-click copy for a value; disables itself when there's nothing to copy, and
+    // flashes "Copied ✓" briefly so the click is confirmed.
+    // Plain Material button (matches every other button's size); the earlier
+    // "empty pill" was a forced implicitHeight clipping the label, not the style.
+    component CopyBtn : Button {
+        id: cb
+        property string value: ""
+        property string label: "Copy"
+        text: label
+        enabled: value.length > 0
+        onClicked: { root.copyText(cb.value); cb.text = "Copied ✓"; copiedTimer.restart() }
+        Timer { id: copiedTimer; interval: 900; onTriggered: cb.text = cb.label }
+    }
 }
