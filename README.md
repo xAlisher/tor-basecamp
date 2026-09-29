@@ -1,3 +1,5 @@
+⚠️ Not an official Logos app
+
 # tor-basecamp
 
 A **headless Basecamp capability module** that wraps HTTP requests (and raw streams) over **Tor**, so any Logos Basecamp module or app gets anonymous networking without bundling and driving its own `tor` process.
