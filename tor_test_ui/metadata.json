@@ -1,0 +1,8 @@
+{
+  "name": "tor_test_ui",
+  "version": "0.1.0",
+  "description": "Dev-only test harness for the tor module: build requests, inspect responses, manage client-auth, bootstrap status. Not for operators.",
+  "interface": "ui_qml",
+  "category": "networking",
+  "dependencies": ["tor"]
+}

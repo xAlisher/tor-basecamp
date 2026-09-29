@@ -1,0 +1,8 @@
+# nix build outputs (built on /extra, never committed)
+result
+result-*
+*.lgx
+# local run/state
+run/
+*.log
+.DS_Store

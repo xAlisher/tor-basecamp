@@ -1,0 +1,8 @@
+{
+  "name": "tor",
+  "version": "0.1.0",
+  "description": "Headless Tor capability module: HTTP requests over Tor (clearnet + .onion), v3 client-authorized onions, and a shared SOCKS endpoint for streaming. One tor instance for all Basecamp apps.",
+  "interface": "universal",
+  "category": "networking",
+  "dependencies": []
+}
