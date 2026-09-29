@@ -7,12 +7,32 @@
   "author": "xAlisher",
   "interface": "universal",
   "main": "tor_plugin",
-  "codegen": { "impl_header": "tor_impl.h" },
+  "codegen": {
+    "impl_header": "tor_impl.h"
+  },
   "icon": "",
   "dependencies": [],
   "capabilities": [],
   "nix": {
     "external_libraries": [],
-    "cmake": { "extra_include_dirs": ["src"] }
+    "cmake": {
+      "extra_include_dirs": [
+        "src"
+      ],
+      "find_packages": [
+        "OpenSSL REQUIRED"
+      ],
+      "extra_link_libraries": [
+        "OpenSSL::Crypto"
+      ]
+    },
+    "packages": {
+      "build": [
+        "pkg-config"
+      ],
+      "runtime": [
+        "openssl"
+      ]
+    }
   }
 }

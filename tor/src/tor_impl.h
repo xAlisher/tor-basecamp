@@ -44,6 +44,22 @@ public:
     /// {id} -> {ok}
     StdLogosResult remove_onion_service(const std::string& requestJson);
 
+    // ── Phase 2: pairing (v3 client auth) ────────────────────────────────────
+    /// -> {ok, public, private}  (x25519, base32; server keeps public, peer gets private)
+    StdLogosResult generate_client_auth_keypair();
+    /// {id, client_public} -> {ok}   (authorize a client on a hosted service; reissue)
+    StdLogosResult authorize_client(const std::string& requestJson);
+    /// {id, client_public} -> {ok}
+    StdLogosResult deauthorize_client(const std::string& requestJson);
+    /// {id} -> {ok, clients:[...]}
+    StdLogosResult list_authorized_clients(const std::string& requestJson);
+    /// {onion_host, private_key} -> {ok}   (client side: reach an auth-gated .onion)
+    StdLogosResult register_client_auth(const std::string& requestJson);
+    /// {onion_host} -> {ok}
+    StdLogosResult remove_client_auth(const std::string& requestJson);
+    /// -> {ok, onions:[...]}
+    StdLogosResult list_client_auth();
+
     std::string name() const { return "tor"; }
     std::string version() const { return "0.1.0"; }
 
@@ -70,4 +86,5 @@ private:
 
     std::unique_ptr<TorClient> m_tor;
     std::map<std::string, HostedService> m_services;   // serviceId -> info
+    std::vector<std::string> m_clientAuthOnions;       // serviceIds we hold a client key for
 };

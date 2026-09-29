@@ -149,5 +149,33 @@ except Exception as e: print("")' 2>/dev/null)
 else bad "create_onion_service returned no onion: $OO"; fi
 kill $HTTP_PID 2>/dev/null; call remove_onion_service "{\"id\":\"${ONION%.onion}\"}" >/dev/null 2>&1; rm -rf "$ECHODIR"
 
+echo "== T8  pairing: keypair -> auth onion -> authorize -> register -> fetch"
+KP=$(call generate_client_auth_keypair)
+PUB=$(echo "$KP" | python3 -c 'import sys,json;r=json.load(sys.stdin);r=r.get("value",r);print(r.get("public",""))')
+PRIV=$(echo "$KP" | python3 -c 'import sys,json;r=json.load(sys.stdin);r=r.get("value",r);print(r.get("private",""))')
+if [ -z "$PUB" ] || [ -z "$PRIV" ]; then bad "keypair gen failed: $KP"; else
+  echo "      pub=${PUB:0:12}... priv=${PRIV:0:12}..."
+  ED=$(mktemp -d); MK="PAIR-OK-$$"; echo "$MK" > "$ED/probe.txt"
+  HP=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  ( cd "$ED" && exec python3 -m http.server "$HP" --bind 127.0.0.1 >/dev/null 2>&1 ) & HPID=$!
+  OO=$(call create_onion_service "{\"local_port\":$HP,\"require_auth\":true}")
+  OID=$(echo "$OO" | grep -oE '[a-z2-7]{56}' | head -1)
+  call authorize_client "{\"id\":\"$OID\",\"client_public\":\"$PUB\"}" >/dev/null
+  call register_client_auth "{\"onion_host\":\"$OID.onion\",\"private_key\":\"$PRIV\"}" >/dev/null
+  GOT=""; LAST=""
+  for _ in $(seq 1 30); do
+    R=$(call http_request "{\"url\":\"http://$OID.onion/probe.txt\",\"timeout_ms\":30000}")
+    LAST=$(echo "$R" | python3 -c 'import sys,json,base64
+try:
+ r=json.load(sys.stdin);r=r.get("value",r);print(base64.b64decode(r.get("body_b64","")).decode("utf-8","replace").strip())
+except: print("")')
+    [ "$LAST" = "$MK" ] && { GOT=1; break; }; sleep 5
+  done
+  [ -n "$GOT" ] && ok "authorized+registered client fetched the auth onion" || bad "pairing fetch failed (last: '$LAST')"
+  LAC=$(call list_authorized_clients "{\"id\":\"$OID\"}")
+  echo "$LAC" | grep -q "$PUB" && ok "list_authorized_clients shows the key" || bad "LAC missing key: $LAC"
+  kill $HPID 2>/dev/null; call remove_onion_service "{\"id\":\"$OID\"}" >/dev/null 2>&1; rm -rf "$ED"
+fi
+
 echo; echo "  RESULT: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

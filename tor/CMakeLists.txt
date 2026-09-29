@@ -12,8 +12,11 @@ else()
     message(FATAL_ERROR "LogosModule.cmake not found. Set LOGOS_MODULE_BUILDER_ROOT.")
 endif()
 
+find_package(OpenSSL REQUIRED)
+
 logos_module(
     NAME tor
+    LINK_LIBRARIES OpenSSL::Crypto
     SOURCES
         src/tor_impl.h  src/tor_impl.cpp
         src/tor_client.h src/tor_client.cpp

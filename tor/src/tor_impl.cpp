@@ -1,15 +1,19 @@
 #include "tor_impl.h"
 #include "tor_client.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <openssl/evp.h>
 
 namespace {
 bool isExecutable(const std::string& p) {
@@ -48,6 +52,33 @@ std::string b64decode(const std::string& in) {
         if (bits >= 0) { out.push_back(char((val >> bits) & 0xff)); bits -= 8; }
     }
     return out;
+}
+// RFC4648 base32, uppercase, no padding (tor's v3 client-auth key encoding).
+std::string base32Encode(const std::string& in) {
+    static const char* A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    std::string out; int bits = 0; unsigned long val = 0;
+    for (unsigned char c : in) {
+        val = (val << 8) | c; bits += 8;
+        while (bits >= 5) { out.push_back(A[(val >> (bits - 5)) & 0x1f]); bits -= 5; }
+    }
+    if (bits > 0) out.push_back(A[(val << (5 - bits)) & 0x1f]);
+    return out;
+}
+// Generate an x25519 keypair; return raw 32-byte pub + priv. false on failure.
+bool genX25519(std::string& pub, std::string& priv) {
+    EVP_PKEY* pkey = nullptr;
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr);
+    if (!ctx) return false;
+    bool ok = EVP_PKEY_keygen_init(ctx) > 0 && EVP_PKEY_keygen(ctx, &pkey) > 0;
+    EVP_PKEY_CTX_free(ctx);
+    if (!ok || !pkey) { if (pkey) EVP_PKEY_free(pkey); return false; }
+    size_t n = 32; std::string pb(32, '\0'), sb(32, '\0');
+    ok = EVP_PKEY_get_raw_public_key(pkey, reinterpret_cast<unsigned char*>(&pb[0]), &n) > 0 && n == 32;
+    n = 32;
+    ok = ok && EVP_PKEY_get_raw_private_key(pkey, reinterpret_cast<unsigned char*>(&sb[0]), &n) > 0 && n == 32;
+    EVP_PKEY_free(pkey);
+    if (ok) { pub = pb; priv = sb; }
+    return ok;
 }
 // curl exit code -> our error_kind
 std::string curlErrorKind(int rc) {
@@ -317,4 +348,83 @@ StdLogosResult TorImpl::remove_onion_service(const std::string& requestJson) {
     bool ok = m_tor->delOnion(id);
     m_services.erase(id);
     return { true, nlohmann::json{ {"ok", ok} } };
+}
+
+StdLogosResult TorImpl::generate_client_auth_keypair() {
+    std::string pub, priv;
+    if (!genX25519(pub, priv)) return { false, {}, "keygen_failed" };
+    // tor's formats are asymmetric: ClientAuthV3 (server) wants the PUBLIC key in
+    // base32; ONION_CLIENT_AUTH_ADD (client) wants the PRIVATE key in base64.
+    return { true, nlohmann::json{ {"ok", true}, {"public", base32Encode(pub)}, {"private", b64encode(priv)} } };
+}
+
+StdLogosResult TorImpl::authorize_client(const std::string& requestJson) {
+    const std::string sErr = ensureStarted(); if (!sErr.empty()) return { false, {}, sErr };
+    nlohmann::json req = nlohmann::json::parse(requestJson, nullptr, false);
+    const std::string id = req.is_object() ? req.value("id", std::string()) : std::string();
+    const std::string pub = req.is_object() ? req.value("client_public", std::string()) : std::string();
+    if (id.empty() || pub.empty()) return { false, {}, "id and client_public required" };
+    auto it = m_services.find(id);
+    if (it == m_services.end()) return { false, {}, "unknown service (create it first)" };
+    auto& cs = it->second.authClients;
+    if (std::find(cs.begin(), cs.end(), pub) == cs.end()) cs.push_back(pub);
+    m_tor->delOnion(id);                       // reissue with the updated client set (same key -> same .onion)
+    std::string onion, err;
+    if (!reissueService(it->second, onion, err)) return { true, nlohmann::json{ {"ok", false}, {"error", err} } };
+    return { true, nlohmann::json{ {"ok", true} } };
+}
+
+StdLogosResult TorImpl::deauthorize_client(const std::string& requestJson) {
+    const std::string sErr = ensureStarted(); if (!sErr.empty()) return { false, {}, sErr };
+    nlohmann::json req = nlohmann::json::parse(requestJson, nullptr, false);
+    const std::string id = req.is_object() ? req.value("id", std::string()) : std::string();
+    const std::string pub = req.is_object() ? req.value("client_public", std::string()) : std::string();
+    if (id.empty() || pub.empty()) return { false, {}, "id and client_public required" };
+    auto it = m_services.find(id);
+    if (it == m_services.end()) return { false, {}, "unknown service" };
+    auto& cs = it->second.authClients;
+    cs.erase(std::remove(cs.begin(), cs.end(), pub), cs.end());
+    m_tor->delOnion(id);
+    std::string onion, err;
+    if (!reissueService(it->second, onion, err)) return { true, nlohmann::json{ {"ok", false}, {"error", err} } };
+    return { true, nlohmann::json{ {"ok", true} } };
+}
+
+StdLogosResult TorImpl::list_authorized_clients(const std::string& requestJson) {
+    nlohmann::json req = nlohmann::json::parse(requestJson, nullptr, false);
+    const std::string id = req.is_object() ? req.value("id", std::string()) : std::string();
+    if (id.empty()) return { false, {}, "id required" };
+    auto it = m_services.find(id);
+    if (it == m_services.end()) return { false, {}, "unknown service" };
+    return { true, nlohmann::json{ {"ok", true}, {"clients", it->second.authClients} } };
+}
+
+StdLogosResult TorImpl::register_client_auth(const std::string& requestJson) {
+    const std::string sErr = ensureStarted(); if (!sErr.empty()) return { false, {}, sErr };
+    nlohmann::json req = nlohmann::json::parse(requestJson, nullptr, false);
+    std::string host = req.is_object() ? req.value("onion_host", std::string()) : std::string();
+    const std::string priv = req.is_object() ? req.value("private_key", std::string()) : std::string();
+    if (host.empty() || priv.empty()) return { false, {}, "onion_host and private_key required" };
+    const std::string id = host.substr(0, host.find(".onion"));
+    if (!m_tor->clientAuthAdd(id, priv)) return { true, nlohmann::json{ {"ok", false}, {"error", "client_auth_add_failed"} } };
+    if (std::find(m_clientAuthOnions.begin(), m_clientAuthOnions.end(), id) == m_clientAuthOnions.end())
+        m_clientAuthOnions.push_back(id);
+    return { true, nlohmann::json{ {"ok", true} } };
+}
+
+StdLogosResult TorImpl::remove_client_auth(const std::string& requestJson) {
+    const std::string sErr = ensureStarted(); if (!sErr.empty()) return { false, {}, sErr };
+    nlohmann::json req = nlohmann::json::parse(requestJson, nullptr, false);
+    std::string host = req.is_object() ? req.value("onion_host", std::string()) : std::string();
+    if (host.empty()) return { false, {}, "onion_host required" };
+    const std::string id = host.substr(0, host.find(".onion"));
+    m_tor->clientAuthRemove(id);
+    m_clientAuthOnions.erase(std::remove(m_clientAuthOnions.begin(), m_clientAuthOnions.end(), id), m_clientAuthOnions.end());
+    return { true, nlohmann::json{ {"ok", true} } };
+}
+
+StdLogosResult TorImpl::list_client_auth() {
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& id : m_clientAuthOnions) arr.push_back(id + ".onion");
+    return { true, nlohmann::json{ {"ok", true}, {"onions", arr} } };
 }
