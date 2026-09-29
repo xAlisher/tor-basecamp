@@ -1,7 +1,9 @@
 #pragma once
 
+#include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <logos_module_context.h>
 #include <logos_result.h>
@@ -34,6 +36,14 @@ public:
     /// Force a fresh circuit. request JSON (optional): {isolation_tag}. -> {ok}
     StdLogosResult new_circuit(const std::string& requestJson);
 
+    // ── Phase 2: onion-service hosting (server) ──────────────────────────────
+    /// {local_port, virtual_port?=80, persist_id?, require_auth?} -> {ok,id,onion,error}
+    StdLogosResult create_onion_service(const std::string& requestJson);
+    /// {id} -> {ok,published,onion}
+    StdLogosResult onion_service_status(const std::string& requestJson);
+    /// {id} -> {ok}
+    StdLogosResult remove_onion_service(const std::string& requestJson);
+
     std::string name() const { return "tor"; }
     std::string version() const { return "0.1.0"; }
 
@@ -45,5 +55,19 @@ private:
     std::string caBundle() const;
     std::string dataDir() const;
 
+    struct HostedService {
+        std::string key;            // ED25519-V3:<b64> for re-issue across restarts
+        int localPort = 0;
+        int virtualPort = 80;
+        std::string persistId;
+        bool requireAuth = false;
+        std::vector<std::string> authClients;   // v3 client-auth public keys (b32)
+    };
+    // Re-issue ADD_ONION for an existing service with its current client set (same
+    // key -> same .onion). Used by create + authorize/deauthorize.
+    bool reissueService(HostedService& s, std::string& onionOut, std::string& err);
+    std::string onionKeyPath(const std::string& persistId) const;
+
     std::unique_ptr<TorClient> m_tor;
+    std::map<std::string, HostedService> m_services;   // serviceId -> info
 };

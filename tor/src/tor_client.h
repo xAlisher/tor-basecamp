@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <sys/types.h>
 
 // TorClient — a single embedded tor process (Qt-free, POSIX).
@@ -33,6 +34,20 @@ public:
 
     // Request a fresh circuit (ControlPort SIGNAL NEWNYM). Returns true on 250 OK.
     bool newCircuit();
+
+    // Host a v3 onion (ADD_ONION, Flags=Detach so it survives this control connection).
+    // keyBlob empty -> NEW:ED25519-V3; else "ED25519-V3:<b64>" to reuse a persisted key.
+    // authClientsB32: v3 client-auth public keys (empty -> public service).
+    // Returns true; onionOut = "<id>.onion", keyOut = "<type>:<b64>" (persist it).
+    bool addOnion(int virtualPort, int localPort, const std::string& keyBlob,
+                  const std::vector<std::string>& authClientsB32,
+                  std::string& onionOut, std::string& keyOut, std::string& errOut);
+    bool delOnion(const std::string& serviceId);           // <id> without .onion
+    bool onionPublished(const std::string& serviceId);     // GETINFO onions/detached
+
+    // Client side: register/forget a v3 client-auth PRIVATE key to reach an auth onion.
+    bool clientAuthAdd(const std::string& serviceId, const std::string& privB32);
+    bool clientAuthRemove(const std::string& serviceId);
 
 private:
     // A control-protocol request/response round trip. Returns the raw reply,

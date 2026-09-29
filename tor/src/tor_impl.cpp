@@ -258,3 +258,63 @@ StdLogosResult TorImpl::new_circuit(const std::string& requestJson) {
     bool ok = m_tor->newCircuit();
     return { true, nlohmann::json{ {"ok", ok} } };
 }
+
+std::string TorImpl::onionKeyPath(const std::string& persistId) const {
+    std::string d = dataDir() + "/onions";
+    ::mkdir(d.c_str(), 0700);
+    return d + "/" + persistId + ".key";
+}
+
+bool TorImpl::reissueService(HostedService& s, std::string& onionOut, std::string& err) {
+    std::string keyOut;
+    if (!m_tor->addOnion(s.virtualPort, s.localPort, s.key, s.authClients, onionOut, keyOut, err))
+        return false;
+    if (!keyOut.empty()) s.key = keyOut;   // capture the key on first (NEW) creation
+    if (!s.persistId.empty() && !s.key.empty()) {
+        std::ofstream kf(onionKeyPath(s.persistId));
+        kf << s.key;
+    }
+    return true;
+}
+
+StdLogosResult TorImpl::create_onion_service(const std::string& requestJson) {
+    const std::string sErr = ensureStarted();
+    if (!sErr.empty()) return { false, {}, sErr };
+    nlohmann::json req = nlohmann::json::parse(requestJson, nullptr, false);
+    if (req.is_discarded() || !req.contains("local_port"))
+        return { false, {}, "local_port required" };
+
+    HostedService s;
+    s.localPort   = req.value("local_port", 0);
+    s.virtualPort = req.value("virtual_port", 80);
+    s.persistId   = req.value("persist_id", std::string());
+    s.requireAuth = req.value("require_auth", false);
+    if (!s.persistId.empty()) {
+        std::string saved = readFile(onionKeyPath(s.persistId));
+        if (!saved.empty()) s.key = saved;   // reuse persisted key -> stable .onion
+    }
+
+    std::string onion, err;
+    if (!reissueService(s, onion, err))
+        return { true, nlohmann::json{ {"ok", false}, {"error", err} } };
+    const std::string id = onion.substr(0, onion.find(".onion"));
+    m_services[id] = s;
+    return { true, nlohmann::json{ {"ok", true}, {"id", id}, {"onion", onion}, {"error", ""} } };
+}
+
+StdLogosResult TorImpl::onion_service_status(const std::string& requestJson) {
+    nlohmann::json req = nlohmann::json::parse(requestJson, nullptr, false);
+    const std::string id = req.is_object() ? req.value("id", std::string()) : std::string();
+    if (id.empty()) return { false, {}, "id required" };
+    bool pub = m_tor->onionPublished(id);
+    return { true, nlohmann::json{ {"ok", true}, {"published", pub}, {"onion", id + ".onion"} } };
+}
+
+StdLogosResult TorImpl::remove_onion_service(const std::string& requestJson) {
+    nlohmann::json req = nlohmann::json::parse(requestJson, nullptr, false);
+    const std::string id = req.is_object() ? req.value("id", std::string()) : std::string();
+    if (id.empty()) return { false, {}, "id required" };
+    bool ok = m_tor->delOnion(id);
+    m_services.erase(id);
+    return { true, nlohmann::json{ {"ok", ok} } };
+}

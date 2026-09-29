@@ -177,3 +177,43 @@ bool TorClient::newCircuit() {
     std::string r = controlQuery("SIGNAL NEWNYM");
     return r.find("250 OK") != std::string::npos;
 }
+
+bool TorClient::addOnion(int virtualPort, int localPort, const std::string& keyBlob,
+                         const std::vector<std::string>& authClientsB32,
+                         std::string& onionOut, std::string& keyOut, std::string& errOut) {
+    std::string cmd = "ADD_ONION ";
+    cmd += keyBlob.empty() ? "NEW:ED25519-V3" : keyBlob;
+    cmd += " Flags=Detach";
+    if (!authClientsB32.empty()) cmd += ",V3Auth";
+    cmd += " Port=" + std::to_string(virtualPort) + ",127.0.0.1:" + std::to_string(localPort);
+    for (const auto& c : authClientsB32) cmd += " ClientAuthV3=" + c;
+    std::string r = controlQuery(cmd);
+    if (r.find("250 OK") == std::string::npos) { errOut = r.empty() ? "control_unreachable" : r; return false; }
+    auto sid = r.find("ServiceID=");
+    if (sid == std::string::npos) { errOut = "no_service_id"; return false; }
+    sid += 10; auto e = r.find_first_of("\r\n", sid);
+    onionOut = r.substr(sid, e == std::string::npos ? std::string::npos : e - sid) + ".onion";
+    auto pk = r.find("PrivateKey=");
+    if (pk != std::string::npos) { pk += 11; auto pe = r.find_first_of("\r\n", pk); keyOut = r.substr(pk, pe == std::string::npos ? std::string::npos : pe - pk); }
+    return true;
+}
+
+bool TorClient::delOnion(const std::string& serviceId) {
+    return controlQuery("DEL_ONION " + serviceId).find("250 OK") != std::string::npos;
+}
+
+bool TorClient::onionPublished(const std::string& serviceId) {
+    std::string r = controlQuery("GETINFO onions/detached");
+    return r.find(serviceId) != std::string::npos;
+}
+
+bool TorClient::clientAuthAdd(const std::string& serviceId, const std::string& privB32) {
+    // ONION_CLIENT_AUTH_ADD <hsaddr-without-.onion> x25519:<b32privkey>
+    std::string r = controlQuery("ONION_CLIENT_AUTH_ADD " + serviceId + " x25519:" + privB32);
+    return r.find("250 OK") != std::string::npos || r.find("251") != std::string::npos;
+}
+
+bool TorClient::clientAuthRemove(const std::string& serviceId) {
+    std::string r = controlQuery("ONION_CLIENT_AUTH_REMOVE " + serviceId);
+    return r.find("250 OK") != std::string::npos || r.find("251") != std::string::npos;
+}
