@@ -1,8 +1,16 @@
 {
   "name": "tor_test_ui",
+  "display_name": "Tor test",
   "version": "0.1.0",
-  "description": "Dev-only test harness for the tor module: build requests, inspect responses, manage client-auth, bootstrap status. Not for operators.",
-  "interface": "ui_qml",
+  "type": "ui_qml",
   "category": "networking",
-  "dependencies": ["tor"]
+  "description": "Dev harness for the tor module: exercise every call across Ready / Fetch / Host / Pair scenarios and inspect responses. Not for operators.",
+  "view": "qml/Main.qml",
+  "icon": "icons/tor.png",
+  "dependencies": ["tor"],
+  "nix": {
+    "packages": { "build": [], "runtime": [] },
+    "external_libraries": [],
+    "cmake": { "find_packages": [], "extra_sources": [], "extra_include_dirs": [], "extra_link_libraries": [] }
+  }
 }
