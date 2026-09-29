@@ -27,14 +27,16 @@ That is three independent tor launches, three torrc templates, three SOCKS/auth 
 
 ## Install (Linux x86-64)
 
-Grab the two `.lgx` from the [v0.1.0 release](https://github.com/xAlisher/tor-basecamp/releases/tag/v0.1.0) and install `tor` first (it's the dependency), then the harness:
+Grab the two `.lgx` from the [v0.1.0 release](https://github.com/xAlisher/tor-basecamp/releases/tag/v0.1.0) (signed by xAlisher) and install `tor` first (it's the dependency), then the harness:
 
 ```
-lgpm install --file tor-0.1.0-linux-amd64.lgx --allow-unsigned
-lgpm install --file tor_test_ui-0.1.0-linux-amd64.lgx --allow-unsigned
+lgpm install --file tor-0.1.0-linux-amd64.lgx
+lgpm install --file tor_test_ui-0.1.0-linux-amd64.lgx
 ```
 
-`tor` bundles its own `tor` + `curl` + CA bundle — no system `tor`/`torsocks` needed. The packages are currently **unsigned** (the signer's validator predates the newer builder's root `assets/` tree; install is unaffected, since Basecamp gates on `trustedSigners`).
+`tor` bundles its own `tor` + `curl` + CA bundle — no system `tor`/`torsocks` needed.
+
+**Build/signing note:** the current `mkLogosModule` publishes each module's LIDL to a root `assets/lidl/`, but `liblgx`'s validator forbids a root `assets/` entry, so a freshly-built `.lgx` can't be signed as-is. Release artifacts are conformed with [`tools/conform-lgx.py`](tools/conform-lgx.py) (strips root `assets/`, recomputes the `root` Merkle hash exactly as liblgx does) then signed. The LIDL is a build-time codegen aid, not needed at runtime. Reconciling `nix-bundle-lgx` (emits root `assets/`) with `logos-package` `liblgx` (forbids it) is tracked upstream.
 
 ## Scope
 
