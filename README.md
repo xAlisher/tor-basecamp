@@ -27,5 +27,10 @@ Early. See [SPEC.md](SPEC.md) for the design and [docs/API.md](docs/API.md) for 
 
 ## Scope
 
-**In:** client HTTP/stream over Tor (clearnet + `.onion`), v3 client-authorized onions, a shared SOCKS endpoint, circuit isolation.
-**Out (sibling work):** hosting a HiddenService (the server side that Radio's broadcaster and node-remote's onion service need). Pluggable transports / Snowflake ([ecosystem#94](https://github.com/logos-co/ecosystem/issues/94)).
+Full Tor capability, **client and server**, enough to replace every consumer's tor:
+- **Client:** HTTP/stream over Tor (clearnet + `.onion`), connect to v3 client-authorized onions, shared SOCKS endpoint, circuit isolation.
+- **Server:** host persistent v3 HiddenServices (`.onion` -> local port), and server-side client authorization (mint keypair, authorize/deauthorize clients, hot-reload).
+
+Delivered in phases (client first, then hosting) — see [SPEC.md](SPEC.md) §5.
+
+**Out (sibling work):** pluggable transports / Snowflake ([ecosystem#94](https://github.com/logos-co/ecosystem/issues/94)); app-level protocols that run *over* the tunnel (SAS pairing, station identity) stay in the apps.

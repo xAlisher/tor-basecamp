@@ -94,19 +94,88 @@ Force a fresh circuit (privacy / retry after a bad exit). With `isolation_tag`, 
 
 ---
 
+## Onion service hosting (server)
+
+### `create_onion_service(request)`
+Publish a v3 HiddenService forwarding an `.onion` to a local port. Persistent key -> stable address across restarts.
+```json
+// request:
+{
+  "local_port": 8099,          // 127.0.0.1:<local_port> to forward to
+  "virtual_port": 80,          // the port on the .onion (default 80)
+  "persist_id": "node-remote", // names the persistent key dir; omit for ephemeral
+  "require_auth": true         // v3 client authorization required to connect
+}
+// ->
+{ "ok": true, "id": "node-remote", "onion": "<56-char>.onion", "error": "" }
+```
+
+### `onion_service_status(request)`
+```json
+// request: { "id": "node-remote" }
+// ->
+{ "ok": true, "published": true, "onion": "<56-char>.onion" }
+```
+
+### `remove_onion_service(request)`
+```json
+// request: { "id": "node-remote" }
+// ->
+{ "ok": true }
+```
+
+## Pairing — server side of client auth
+
+### `generate_client_auth_keypair()`
+Mint an x25519 keypair. The server keeps/authorizes the public half; the private half is handed to the peer (out-of-band, via the app's own channel) for its `register_client_auth`.
+```json
+// ->
+{ "ok": true, "public": "<base32 x25519 pub>", "private": "<base32 x25519 priv>" }
+```
+
+### `authorize_client(request)`
+Add a client's public key to a hosted service's `authorized_clients` and reload tor (SIGHUP, no restart).
+```json
+// request: { "id": "node-remote", "client_public": "<base32 x25519 pub>" }
+// ->
+{ "ok": true }
+```
+
+### `deauthorize_client(request)`  /  `list_authorized_clients(request)`
+```json
+// deauthorize -> { "id": "...", "client_public": "..." }  =>  { "ok": true }
+// list        -> { "id": "..." }                          =>  { "ok": true, "clients": ["<pub>", ...] }
+```
+
+---
+
 ## Summary — the call list
+
+**Client**
 
 | call | purpose | consumer |
 |---|---|---|
 | `status()` | bootstrap state + socks port | all |
 | `get_socks_endpoint()` | shared SOCKS for streaming | Radio, Receiver |
 | `http_request(req)` | buffered HTTP over Tor | node-remote, 1-click, any app |
-| `register_client_auth(req)` | add v3 client-auth key | node-remote |
-| `remove_client_auth(req)` | remove a client-auth key | node-remote |
-| `list_client_auth()` | list registered auth onions | node-remote |
+| `register_client_auth(req)` | add a client-auth **private** key (to connect) | node-remote client |
+| `remove_client_auth(req)` / `list_client_auth()` | manage connect keys | node-remote client |
 | `new_circuit(req?)` | fresh circuit / isolation | any app |
 
-### Deferred (v2 — flagged in SPEC §3, §7)
+**Server / hosting** (Phase 2 — replaces node-remote + Radio broadcaster)
+
+| call | purpose | consumer |
+|---|---|---|
+| `create_onion_service(req)` | host a persistent v3 `.onion` -> local port | node-remote, Radio |
+| `onion_service_status(req)` | published? address? | node-remote, Radio |
+| `remove_onion_service(req)` | tear down a hosted service | node-remote, Radio |
+| `generate_client_auth_keypair()` | mint an x25519 client-auth keypair | node-remote |
+| `authorize_client(req)` | admit a client pubkey (SIGHUP reload) | node-remote |
+| `deauthorize_client(req)` / `list_authorized_clients(req)` | manage admitted clients | node-remote |
+
+`register_client_auth` (client) + `generate_client_auth_keypair` + `authorize_client` (server) are the two halves of the pairing.
+
+### Deferred (v2 — SPEC §3)
 - `open_stream(url, opts)` — module-managed local loopback handle for streaming (vs raw SOCKS).
 - `set_bridges(...)` — pluggable transports / Snowflake (ecosystem#94).
 - control-port event subscription (stream/circuit events) if a consumer needs it.
